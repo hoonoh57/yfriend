@@ -1,57 +1,49 @@
 """
-engines/voice/edge_tts_engine.py - Mutable voice engine
-나레이션 생성 + 단어별 타임스탬프 저장 (자막 동기화용)
+engines/voice/edge_tts_engine.py – Edge TTS with word-level timestamps
 """
 from __future__ import annotations
-
-import json
+import asyncio, json
 from pathlib import Path
-
 import edge_tts
-
-from core.models import Origin, Part, PartType, Scene
+from core.models import Part, PartType, Origin, Scene
 
 
 class Engine:
-    def __init__(self, voice: str = "ko-KR-SunHiNeural",
-                 rate: str = "+0%", **kwargs):
+    def __init__(self, voice: str = "ko-KR-SunHiNeural", rate: str = "+0%", **kwargs):
         self.voice = voice
         self.rate = rate
 
-    async def generate_narration(self, scene: Scene, output_path: Path, **kwargs) -> Part:
+    async def generate_narration(self, scene: Scene, output_path: Path) -> Part:
+        output_path = Path(output_path)
         communicate = edge_tts.Communicate(
             text=scene.narration_ko,
             voice=self.voice,
             rate=self.rate,
         )
 
-        # 단어별 타임스탬프 수집
-        timestamps = []
         audio_chunks = []
+        word_boundaries = []
 
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 audio_chunks.append(chunk["data"])
             elif chunk["type"] == "WordBoundary":
-                timestamps.append({
+                word_boundaries.append({
                     "text": chunk["text"],
-                    "offset_ms": chunk["offset"] // 10000,  # 100ns -> ms
-                    "duration_ms": chunk["duration"] // 10000,
+                    "offset_ms": chunk["offset"] / 10000,  # 100ns -> ms
+                    "duration_ms": chunk["duration"] / 10000,
                 })
 
-        # 오디오 저장
-        with open(output_path, "wb") as f:
-            for c in audio_chunks:
-                f.write(c)
+        # Save audio
+        audio_data = b"".join(audio_chunks)
+        output_path.write_bytes(audio_data)
 
-        # 타임스탬프 JSON 저장 (자막 동기화용)
+        # Save timestamps
         ts_path = output_path.with_suffix(".timestamps.json")
-        with open(ts_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "scene_id": scene.scene_id,
-                "narration": scene.narration_ko,
-                "words": timestamps,
-            }, f, ensure_ascii=False, indent=2)
+        ts_path.write_text(
+            json.dumps(word_boundaries, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
         return Part(
             part_type=PartType.NARRATION,
@@ -59,6 +51,6 @@ class Engine:
             file_path=output_path,
             origin=Origin.AUTO,
             engine_used=f"edge_tts/{self.voice}",
-            prompt_used=scene.narration_ko,
+            prompt_used=scene.narration_ko[:100],
             metadata={"timestamps_file": str(ts_path)},
         )
