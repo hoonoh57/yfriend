@@ -3,7 +3,6 @@ core/orchestrator.py - Immutable orchestration controller
 Sprint 2.5: SCRIPT -> VISUAL -> VOICE -> ASSEMBLY
 """
 from __future__ import annotations
-import asyncio
 import importlib
 import time
 from pathlib import Path
@@ -12,7 +11,6 @@ from core.project import create_project, log_phase
 from core.models import PhaseType, Blueprint
 
 
-# Sprint 2.5 phases (VISUAL 추가)
 SPRINT_PHASES = [
     (PhaseType.SCRIPT, "script", "01_script"),
     (PhaseType.VISUAL, "visual", "02_visual"),
@@ -22,16 +20,10 @@ SPRINT_PHASES = [
 
 
 class Orchestrator:
-    """Runs each phase in sequence, logs results"""
-
     def __init__(self, config_path: str = "config.yaml"):
         self.config = load_config(config_path)
 
     async def run(self, topic: str) -> str:
-        return await self._run_async(topic)
-
-
-    async def _run_async(self, topic: str) -> str:
         project_dir = create_project(self.config.projects_dir, topic)
         print(f"\n{'='*60}")
         print(f"  yFriend Prototype - Sprint 2.5")
@@ -40,7 +32,6 @@ class Orchestrator:
         print(f"{'='*60}\n")
 
         blueprint = None
-        keyframe_parts = []
 
         for phase_type, config_key, sub_dir in SPRINT_PHASES:
             phase_dir = Path(project_dir) / sub_dir
@@ -56,7 +47,6 @@ class Orchestrator:
             t0 = time.time()
 
             try:
-                # API키 전달 (script, visual 엔진용)
                 api_key_val = self.config.api_keys.get("gemini", "")
                 extra = {}
                 if config_key in ("script", "visual"):
@@ -78,13 +68,13 @@ class Orchestrator:
                     if blueprint is None:
                         raise RuntimeError("Blueprint 없음. Script 단계를 먼저 실행하세요.")
                     for scene in blueprint.scenes:
-                        part = await engine.generate_voice(scene, phase_dir)
+                        mp3_path = phase_dir / f"scene_{scene.scene_number:02d}_narration.mp3"
+                        part = await engine.generate_narration(scene, mp3_path)
                         print(f"    [OK] {scene.scene_id} -> {part.file_path.name} [PASS]")
 
                 elif config_key == "assembly":
                     if blueprint is None:
                         raise RuntimeError("Blueprint 없음. Script 단계를 먼저 실행하세요.")
-                    # 키프레임 이미지 경로 전달
                     keyframe_dir = Path(project_dir) / "02_visual"
                     voice_dir = Path(project_dir) / "04_voice"
                     result = await engine.assemble(
@@ -106,7 +96,6 @@ class Orchestrator:
         return str(result_path)
 
     def _load_engine(self, engine_config, **extra):
-        """엔진 모듈을 동적 로드"""
         module = importlib.import_module(engine_config.module)
         params = {**engine_config.params, **extra}
         return module.Engine(**params)

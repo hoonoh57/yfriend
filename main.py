@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 
 from core.orchestrator import Orchestrator
 
@@ -19,8 +20,8 @@ async def main():
 
     topic = sys.argv[1]
     orchestrator = Orchestrator()
-    project_dir = await orchestrator.run(topic)
-    print(f"\nResult: {project_dir / '06_assembly' / 'final_prototype.mp4'}")
+    result_path = await orchestrator.run(topic)
+    print(f"\nResult: {result_path}")
 
 
 if __name__ == "__main__":

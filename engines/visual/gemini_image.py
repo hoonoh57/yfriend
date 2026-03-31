@@ -1,20 +1,22 @@
 """
 engines/visual/gemini_image.py - Mutable visual engine
-Gemini 2.5 Flash Image (Nano Banana) 기반 키프레임 이미지 생성
-API키 로테이션 지원, 무료 티어 (~500장/일)
+1차: Pollinations.ai (무료, API키 불필요)
+2차: Gemini Image API (폴백)
 """
 from __future__ import annotations
 import asyncio
 import base64
 import time
 from pathlib import Path
-from google import genai
-from google.genai import types
+from urllib.parse import quote
+
+import requests
+
 from core.models import Blueprint, Part, PartType, Scene
 
 
 class Engine:
-    """Scene별 키프레임 이미지를 Gemini Image API로 생성"""
+    """Scene별 키프레임 이미지 생성 - Pollinations.ai 우선"""
 
     def __init__(
         self,
@@ -24,11 +26,11 @@ class Engine:
         api_key=None,
         **kwargs,
     ):
-        self.model = model
+        self.gemini_model = model
         self.aspect_ratio = aspect_ratio
         self.style = style
 
-        # API키 로테이션 (기존 gemini_flash.py와 동일 패턴)
+        # Gemini 폴백용 API키
         if isinstance(api_key, list):
             self.api_keys = [k for k in api_key if k]
         elif isinstance(api_key, str) and api_key:
@@ -36,13 +38,9 @@ class Engine:
         else:
             self.api_keys = []
 
-        if not self.api_keys:
-            raise RuntimeError("Gemini API key not configured for visual engine")
-
     async def generate_keyframes(
         self, blueprint: Blueprint, output_dir: Path, **kwargs
     ) -> list[Part]:
-        """Blueprint의 각 Scene에 대해 키프레임 이미지 1장씩 생성"""
         output_dir.mkdir(parents=True, exist_ok=True)
         parts = []
 
@@ -50,10 +48,15 @@ class Engine:
             print(f"      [IMG] scene_{scene.scene_number:02d}: {scene.title}")
             image_path = output_dir / f"scene_{scene.scene_number:02d}_keyframe.png"
 
-            # 프롬프트 구성: visual_prompt_en + 스타일 가이드
             prompt = self._build_prompt(scene, blueprint.style_guide)
 
-            success = await self._generate_with_rotation(prompt, image_path)
+            # 1차: Pollinations.ai (무료, 키 불필요)
+            success = await self._generate_pollinations(prompt, image_path)
+
+            # 2차: Gemini Image API (폴백)
+            if not success and self.api_keys:
+                print(f"           Pollinations 실패, Gemini 폴백 시도...")
+                success = await self._generate_gemini(prompt, image_path)
 
             if success:
                 part = Part(
@@ -61,7 +64,6 @@ class Engine:
                     file_path=image_path,
                     scene_id=scene.scene_id,
                     metadata={
-                        "model": self.model,
                         "prompt": prompt[:200],
                         "aspect_ratio": self.aspect_ratio,
                     },
@@ -69,65 +71,82 @@ class Engine:
                 parts.append(part)
                 print(f"           -> {image_path.name} [OK]")
             else:
-                print(f"           -> {image_path.name} [FAIL] 모든 키 실패")
+                print(f"           -> {image_path.name} [FAIL]")
+
+            # Rate limit 방지: 장면 사이 16초 대기 (무가입 15초 제한)
+            if scene != blueprint.scenes[-1]:
+                wait = 16
+                print(f"           ({wait}초 대기...)")
+                await asyncio.sleep(wait)
 
         return parts
 
     def _build_prompt(self, scene: Scene, style_guide: str) -> str:
-        """Scene 정보로 이미지 생성 프롬프트 구성"""
-        prompt_parts = [
-            f"Create a single high-quality image for a YouTube video scene.",
-            f"Visual description: {scene.visual_prompt_en}",
-            f"Style: {self.style}",
-            f"Scene context: {scene.title}",
-            f"Keywords: {', '.join(scene.keywords) if scene.keywords else 'cinematic'}",
-            f"Aspect ratio: {self.aspect_ratio} (widescreen YouTube format)",
-            f"Do NOT include any text, watermarks, or logos in the image.",
-        ]
-        if style_guide:
-            prompt_parts.append(f"Overall style guide: {style_guide}")
-        return "\n".join(prompt_parts)
+        return (
+            f"A professional documentary-style photograph, "
+            f"shot on location with natural lighting, Canon EOS R5, "
+            f"wide angle 24mm lens, vivid true-to-life colors, "
+            f"{scene.visual_prompt_en}. "
+            f"No text, no watermarks, no logos."
+        )
 
-    async def _generate_with_rotation(self, prompt: str, output_path: Path) -> bool:
-        """API키 로테이션으로 이미지 생성 시도"""
-        last_error = None
+
+    async def _generate_pollinations(self, prompt: str, output_path: Path) -> bool:
+        """Pollinations.ai로 이미지 생성 (무료, API키 불필요)"""
+        try:
+            encoded = quote(prompt)
+            url = (
+                f"https://image.pollinations.ai/prompt/{encoded}"
+                f"?width=1920&height=1080&model=flux&enhance=true&nologo=true"
+            )
+
+            print(f"           Pollinations 요청 중...")
+
+            response = requests.get(url, timeout=120)
+
+            if response.status_code == 200 and len(response.content) > 1000:
+                output_path.write_bytes(response.content)
+                print(f"           Pollinations OK ({len(response.content)//1024}KB)")
+                return True
+            else:
+                print(f"           Pollinations 실패: status={response.status_code}, size={len(response.content)}")
+                return False
+
+        except Exception as e:
+            print(f"           Pollinations 에러: {str(e)[:80]}")
+            return False
+
+    async def _generate_gemini(self, prompt: str, output_path: Path) -> bool:
+        """Gemini Image API 폴백"""
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError:
+            return False
 
         for i, key in enumerate(self.api_keys):
             key_label = f"KEY_{i+1} ({key[:8]}...{key[-4:]})"
             try:
                 client = genai.Client(api_key=key)
-
-                # Gemini Image Generation API 호출
                 response = client.models.generate_content(
-                    model=self.model,
+                    model=self.gemini_model,
                     contents=[prompt],
                     config=types.GenerateContentConfig(
                         response_modalities=["TEXT", "IMAGE"],
                     ),
                 )
-
-                # 응답에서 이미지 추출
                 for part in response.candidates[0].content.parts:
                     if part.inline_data is not None:
-                        # 이미지 데이터를 파일로 저장
                         image_data = part.inline_data.data
                         if isinstance(image_data, str):
                             image_data = base64.b64decode(image_data)
                         output_path.write_bytes(image_data)
+                        print(f"           Gemini OK ({key_label})")
                         return True
-
-                # 이미지가 없으면 텍스트만 반환된 경우
-                print(f"           WARN {key_label}: 이미지 없이 텍스트만 반환됨")
-                last_error = "No image in response"
-                continue
-
             except Exception as e:
-                last_error = e
                 error_msg = str(e)
-                print(f"           FAIL {key_label}: {error_msg[:80]}")
-
-                # 429 Rate Limit → 잠시 대기 후 다음 키
-                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                print(f"           Gemini FAIL {key_label}: {error_msg[:60]}")
+                if "429" in error_msg:
                     await asyncio.sleep(2)
                 continue
 
