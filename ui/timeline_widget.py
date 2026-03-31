@@ -187,7 +187,11 @@ class ClipItem(QGraphicsRectItem):
 
 # ─── Track Header ───
 class TrackHeader(QGraphicsRectItem):
-    """트랙 헤더 — 이름 + 뮤트/솔로/잠금/보기 버튼 + 타입 색상 바"""
+    """트랙 헤더 — 이름 + 뮤트/솔로/잠금/보기 버튼 + 타입 색상 바
+    
+    핵심: 자식 아이템은 부모 로컬 좌표를 사용해야 합니다.
+    부모 rect이 (0, scene_y, W, H)이면 자식의 (0,0)은 부모의 좌상단입니다.
+    """
     def __init__(self, track: Track, idx: int, scene_width: float, owner=None):
         y = RULER_H + idx * TRACK_H
         super().__init__(0, y, HEADER_W, TRACK_H)
@@ -196,8 +200,9 @@ class TrackHeader(QGraphicsRectItem):
         self._owner = owner
         self.setBrush(QBrush(QColor("#161b22")))
         self.setPen(QPen(QColor("#30363d"), 1))
-        self.setZValue(10)
+        self.setZValue(20)
 
+        # ★ 자식 아이템은 부모 rect 내 로컬 좌표 (0,0) = 부모 좌상단
         # 타입 색상 바 (왼쪽 3px)
         bar = QGraphicsRectItem(0, y, 3, TRACK_H, self)
         bar.setBrush(QBrush(QColor(CLIP_COLORS.get(track.track_type, "#666"))))
@@ -210,8 +215,8 @@ class TrackHeader(QGraphicsRectItem):
         name.setFont(QFont("Segoe UI", 8, QFont.Bold))
         name.setPos(8, y + 3)
 
-        # 뮤트(M) / 솔로(S) / 잠금(L) / 보기(V) — 텍스트 버튼으로 표현
-        btn_y = y + TRACK_H - 18
+        # 뮤트(M) / 솔로(S) / 잠금(L) / 보기(V)
+        btn_y_local = y + TRACK_H - 18
         btn_font = QFont("Consolas", 7, QFont.Bold)
         btn_x = 8
         for label, color, attr in [
@@ -228,7 +233,7 @@ class TrackHeader(QGraphicsRectItem):
             c = color if active else "#484f58"
             txt.setDefaultTextColor(QColor(c))
             txt.setFont(btn_font)
-            txt.setPos(btn_x, btn_y)
+            txt.setPos(btn_x, btn_y_local)
             btn_x += 18
 
     def contextMenuEvent(self, e):
@@ -431,7 +436,6 @@ class TimelineWidget(QWidget):
             self._scene.addLine(HEADER_W, y + TRACK_H, sw, y + TRACK_H, QPen(QColor("#1a2233"), 1))
             # 헤더
             hdr = TrackHeader(track, i, sw, owner=self)
-            hdr.setZValue(20)
             self._scene.addItem(hdr)
 
             # 클립

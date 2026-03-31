@@ -51,28 +51,44 @@ class PreviewCanvas(QLabel):
                         rw, rh = int(tw*r), int(th*r)
                         p.drawRect(tx+(tw-rw)//2, ty+(th-rh)//2, rw, rh)
                 for o in self._overlays:
-                    fs = o.get("font_size", 14)
+                    # ── 폰트 크기: auto(0)이면 화면 높이의 3.5% ──
+                    fs = o.get("font_size", 0)
+                    if fs <= 0:
+                        fs = max(10, int(th * 0.035))
                     p.setFont(QFont("Malgun Gothic", fs, QFont.Bold))
                     fm = p.fontMetrics()
                     raw = o.get("text", "")
-                    # ── 멀티라인 처리: \n 분리 + 긴 줄 자동 줄바꿈 ──
-                    max_cpl = max(10, int(tw * 0.85) // max(fm.averageCharWidth(), 1))
+                    if not raw.strip():
+                        continue
+                    # ── 줄바꿈: \n 또는 화면 폭 기준 자동 wrap ──
+                    max_px_w = int(tw * 0.88)  # 자막 최대 폭 = 화면의 88%
                     raw_lines = raw.replace("\\n", "\n").split("\n")
                     lines = []
                     for rl in raw_lines:
                         rl = rl.strip()
-                        while len(rl) > max_cpl:
-                            lines.append(rl[:max_cpl])
-                            rl = rl[max_cpl:]
-                        if rl:
-                            lines.append(rl)
+                        if not rl:
+                            continue
+                        # 픽셀 기반 줄바꿈 (한글 정확)
+                        cur = ""
+                        for ch in rl:
+                            test = cur + ch
+                            if fm.horizontalAdvance(test) > max_px_w:
+                                if cur:
+                                    lines.append(cur)
+                                cur = ch
+                            else:
+                                cur = test
+                        if cur:
+                            lines.append(cur)
                     if not lines:
                         continue
                     line_h = fm.height() + 4
                     max_w = max(fm.horizontalAdvance(ln) for ln in lines) + 24
                     total_h = line_h * len(lines) + 12
                     ox = tx + int(tw * o.get("x", 0.5)) - max_w // 2
-                    oy = ty + int(th * o.get("y", 0.85)) - total_h // 2
+                    # 자막이 화면 아래쪽에 위치하되 넘치지 않도록
+                    oy = ty + int(th * o.get("y", 0.88)) - total_h
+                    oy = max(ty, min(oy, ty + th - total_h - 4))
                     # 배경
                     p.setPen(Qt.NoPen)
                     p.setBrush(QColor("#000000cc"))
@@ -254,9 +270,9 @@ class PreviewWidget(QWidget):
             for c in track.clips:
                 if c.start_frame <= t < c.start_frame + c.duration:
                     txts.append({
-                        "text": c.text_content[:200], "x":0.5, "y":0.85,
-                        "font_size": c.text_style.get("size",42)//3,
-                        "color": c.text_style.get("color","#fff"),
+                        "text": c.text_content, "x": 0.5, "y": 0.88,
+                        "font_size": 0,  # 0 = auto (캔버스에서 화면 크기 기반 계산)
+                        "color": c.text_style.get("color", "#fff"),
                     })
         self._canvas.set_overlay_texts(txts)
 
