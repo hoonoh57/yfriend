@@ -4,7 +4,7 @@ Gemini API key rotation: tries up to 5 keys sequentially.
 """
 from __future__ import annotations
 
-import json
+import json, re
 from pathlib import Path
 
 from google import genai
@@ -21,19 +21,47 @@ SYSTEM_PROMPT = (
     '  "topic": "topic",\n'
     '  "total_scenes": N,\n'
     '  "estimated_total_duration_sec": N,\n'
-    '  "style_guide": "style description",\n'
+    '  "style_guide": "consistent visual style description used across ALL scenes",\n'
+    '  "character_sheet": "detailed description of recurring characters (age, ethnicity, hair, clothing, build)",\n'
+    '  "setting_sheet": "detailed description of the world/era/location style used across scenes",\n'
     '  "scenes": [\n'
     "    {{\n"
     '      "scene_id": "scene_01",\n'
     '      "scene_number": 1,\n'
     '      "title": "scene title in Korean",\n'
     '      "narration_ko": "Korean narration (2-4 sentences, natural spoken style)",\n'
-    '      "visual_prompt_en": "Detailed English visual description for image generation",\n'
+    '      "visual_prompt_en": "Detailed English visual description for AI image generation",\n'
     '      "duration_estimate_sec": 10,\n'
     '      "keywords": ["keyword1", "keyword2"]\n'
     "    }}\n"
     "  ]\n"
     "}}\n"
+    "\n"
+    "=== CHARACTER & SETTING CONSISTENCY (MOST IMPORTANT) ===\n"
+    "- You MUST define character_sheet and setting_sheet FIRST, then reference them in EVERY visual_prompt_en.\n"
+    "- character_sheet example: 'A young East Asian man in his late 20s, lean athletic build, "
+    "long black hair tied in a topknot, wearing a faded gray hanfu robe with a dark sash, "
+    "carrying a worn leather-wrapped jian sword on his back'\n"
+    "- setting_sheet example: 'Ancient Song Dynasty China, misty mountain valleys, bamboo forests, "
+    "weathered stone temples, dirt paths, muted earth tones with jade green accents'\n"
+    "- EVERY visual_prompt_en MUST start by describing the SAME character with the SAME appearance.\n"
+    "- Characters must NEVER change ethnicity, age, clothing style, or hairstyle between scenes.\n"
+    "- If the topic is about ancient China/Korea/Japan, characters MUST be East Asian wearing period-accurate clothing.\n"
+    "- If the topic is about modern Korea, characters MUST be Korean wearing modern Korean fashion.\n"
+    "- NEVER mix time periods: no modern clothing in historical scenes, no Western faces in Asian stories.\n"
+    "- Maintain the SAME color palette, lighting mood, and art direction across all scenes.\n"
+    "\n"
+    "=== VISUAL PROMPT STRUCTURE (for each scene) ===\n"
+    "Every visual_prompt_en must follow this exact structure:\n"
+    "1. [Character]: Repeat the character description from character_sheet\n"
+    "2. [Action]: What the character is doing in this specific scene\n"
+    "3. [Setting]: Reference setting_sheet + scene-specific location details\n"
+    "4. [Lighting/Mood]: Consistent lighting style with scene-specific variations\n"
+    "5. [Camera]: Camera angle and composition\n"
+    "Example: 'A young East Asian man in his late 20s with long black hair in a topknot, "
+    "wearing a faded gray hanfu robe, stands at the edge of a misty cliff overlooking a bamboo valley. "
+    "He grips his worn jian sword, wind blowing his robe. Ancient Song Dynasty China setting, "
+    "dawn light breaking through fog, warm golden rays. Wide shot, low angle, cinematic composition.'\n"
     "\n"
     "=== CRITICAL NARRATION RULES ===\n"
     "- Maximum {max_scenes} scenes\n"
@@ -42,30 +70,19 @@ SYSTEM_PROMPT = (
     "  Instead, naturally weave explanations into the sentence.\n"
     "  BAD:  '무협은 무(武)와 협(俠)의 합성어로'\n"
     "  GOOD: '무협이란 무술의 무, 의협의 협이 합쳐진 말로'\n"
-    "- NEVER use quotation marks like '이것' or \"이것\" around words.\n"
+    "- NEVER use quotation marks around words.\n"
     "- NEVER include English words in narration_ko. Write everything in pure Korean.\n"
-    "  BAD:  '한국의 사계절(Four Seasons)은'\n"
-    "  GOOD: '한국의 사계절은'\n"
-    "- NEVER use abbreviations, symbols, or special characters (%, &, #, *, etc.).\n"
-    "- Write numbers as Korean words: '세 가지' not '3가지', '열두 달' not '12달'.\n"
-    "- Use natural conversational spoken Korean, as if talking to a friend.\n"
+    "- NEVER use abbreviations, symbols, or special characters.\n"
+    "- Write numbers as Korean words.\n"
+    "- Use natural conversational spoken Korean.\n"
     "- Each narration_ko should be 2-4 sentences, smooth and flowing.\n"
-    "- Start with a compelling hook that grabs attention in the first 3 seconds.\n"
-    "- End with a warm, memorable closing that invites viewers to subscribe.\n"
-    "\n"
-    "=== VISUAL PROMPT RULES ===\n"
-    "- visual_prompt_en: detailed English scene description for AI image generation.\n"
-    "- Describe the scene cinematically: subject, action, setting, lighting, mood.\n"
-    "- If people appear, describe: gender, approximate age, clothing, posture, expression.\n"
-    "- Maintain visual consistency across scenes (same season, same location style).\n"
-    "- NEVER include text or words in the visual description.\n"
+    "- Start with a compelling hook. End with a warm closing.\n"
     "\n"
     "=== STRUCTURE ===\n"
-    "- Scene 1: Attention-grabbing hook with a question or surprising fact.\n"
-    "- Scenes 2-{last_scene}: Body content with vivid descriptions and emotional appeal.\n"
-    "- Final scene: Warm closing + implicit subscribe encouragement.\n"
-    "- Vary pacing: mix short punchy scenes with longer reflective ones.\n"
-    "- duration_estimate_sec: estimate based on Korean reading speed (~3.5 chars/sec).\n"
+    "- Scene 1: Attention-grabbing hook.\n"
+    "- Scenes 2-{last_scene}: Body with vivid descriptions and emotional appeal.\n"
+    "- Final scene: Warm closing.\n"
+    "- duration_estimate_sec: based on Korean reading speed (~3.5 chars/sec).\n"
 )
 
 
@@ -114,16 +131,25 @@ class Engine:
                 raw_text = response.text.strip()
                 data = json.loads(raw_text)
 
+                # Extract consistency sheets
+                char_sheet = data.get("character_sheet", "")
+                setting_sheet = data.get("setting_sheet", "")
+                consistency_prefix = self._build_consistency_prefix(char_sheet, setting_sheet)
+
                 scenes = []
                 for s in data["scenes"]:
-                    # Clean narration before saving
                     narration = self._clean_narration(s["narration_ko"])
+                    # Prepend consistency info to visual prompt if not already included
+                    visual = s["visual_prompt_en"]
+                    if consistency_prefix and consistency_prefix[:30].lower() not in visual[:50].lower():
+                        visual = consistency_prefix + " " + visual
+
                     scenes.append(Scene(
                         scene_id=s["scene_id"],
                         scene_number=s["scene_number"],
                         title=s["title"],
                         narration_ko=narration,
-                        visual_prompt_en=s["visual_prompt_en"],
+                        visual_prompt_en=visual,
                         duration_estimate_sec=s.get("duration_estimate_sec", 10),
                         keywords=s.get("keywords", []),
                     ))
@@ -136,11 +162,16 @@ class Engine:
                     style_guide=data.get("style_guide", ""),
                 )
 
+                # Save full data including sheets
                 out_path = output_dir / "blueprint.json"
                 with open(out_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
 
                 print("      OK with " + key_label)
+                if char_sheet:
+                    print(f"      [캐릭터] {char_sheet[:80]}...")
+                if setting_sheet:
+                    print(f"      [배경설정] {setting_sheet[:80]}...")
                 return blueprint
 
             except Exception as e:
@@ -152,23 +183,25 @@ class Engine:
             "All " + str(len(self.api_keys)) + " API keys failed. Last error: " + str(last_error)
         )
 
+    def _build_consistency_prefix(self, char_sheet: str, setting_sheet: str) -> str:
+        """Build a prefix from character/setting sheets to prepend to every visual prompt."""
+        parts = []
+        if char_sheet:
+            parts.append(char_sheet.strip().rstrip(".") + ".")
+        if setting_sheet:
+            parts.append(setting_sheet.strip().rstrip(".") + ".")
+        return " ".join(parts)
+
     def _clean_narration(self, text: str) -> str:
         """Remove artifacts that cause TTS to read unnaturally."""
-        import re
-
-        # Remove content in parentheses: 무(武) -> 무, 사계절(Four Seasons) -> 사계절
+        # Remove content in parentheses
         text = re.sub(r"\([^)]*\)", "", text)
-
-        # Remove content in square brackets: [참고] -> empty
+        # Remove content in square brackets
         text = re.sub(r"\[[^\]]*\]", "", text)
-
-        # Remove various quotation marks wrapping single words
-        text = re.sub(r"['\u2018\u2019\u201C\u201D\"]+", "", text)
-
+        # Remove various quotation marks
+        text = re.sub(r"['\"\u2018\u2019\u201C\u201D]", "", text)
         # Remove stray special characters
         text = re.sub(r"[#*&%@~^]", "", text)
-
         # Collapse multiple spaces
         text = re.sub(r"\s+", " ", text).strip()
-
         return text

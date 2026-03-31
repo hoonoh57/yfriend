@@ -181,6 +181,7 @@ class ProjectModel:
         return proj
 
     @classmethod
+    @classmethod
     def from_yfriend_project(cls, project_dir: Path) -> "ProjectModel":
         """기존 yFriend 파이프라인 결과물을 ProjectModel로 변환"""
         proj = cls()
@@ -188,11 +189,14 @@ class ProjectModel:
         proj.name = project_dir.name
 
         # 블루프린트 읽기
-        bp_dir = project_dir / "01_script"
         bp_file = None
-        for f in sorted(bp_dir.glob("*.json")):
-            bp_file = f
-            break
+        for sub in sorted(project_dir.iterdir()):
+            if sub.is_dir() and "script" in sub.name.lower():
+                for f in sorted(sub.glob("*.json")):
+                    bp_file = f
+                    break
+            if bp_file:
+                break
 
         scenes = []
         if bp_file and bp_file.exists():
@@ -200,16 +204,40 @@ class ProjectModel:
             scenes = bp_data.get("scenes", [])
             proj.topic = bp_data.get("topic", "")
 
+        # ─── 폴더 자동 탐색 (번호 고정이 아닌 이름 기반) ───
+        visual_dir = None
+        voice_dir = None
+        assembly_dir = None
+        music_dir = None
+
+        for sub in sorted(project_dir.iterdir()):
+            if not sub.is_dir():
+                continue
+            name_lower = sub.name.lower()
+            if "visual" in name_lower or "image" in name_lower:
+                visual_dir = sub
+            elif "voice" in name_lower or "narration" in name_lower or "tts" in name_lower:
+                voice_dir = sub
+            elif "assembly" in name_lower or "output" in name_lower:
+                assembly_dir = sub
+            elif "music" in name_lower or "bgm" in name_lower:
+                music_dir = sub
+
+        # fallback: 번호 기반
+        if not visual_dir:
+            for p in project_dir.glob("*visual*"):
+                if p.is_dir(): visual_dir = p; break
+        if not voice_dir:
+            for p in project_dir.glob("*voice*"):
+                if p.is_dir(): voice_dir = p; break
+
+        print(f"[PROJECT] visual={visual_dir}, voice={voice_dir}, assembly={assembly_dir}, music={music_dir}")
+
         # 트랙 생성
         video_track = Track(name="Video 1", track_type="video")
         text_track = Track(name="Subtitles", track_type="text")
         audio_track = Track(name="Narration", track_type="audio")
         bgm_track = Track(name="BGM", track_type="bgm")
-
-        # 씬별로 클립 추가
-        visual_dir = project_dir / "02_visual"
-        voice_dir = project_dir / "03_voice"
-        assembly_dir = project_dir / "06_assembly"
 
         current_time = 0.0
         for i, scene in enumerate(scenes):
@@ -217,19 +245,26 @@ class ProjectModel:
             sid = f"{scene_num:02d}"
             dur_est = scene.get("duration_estimate_sec", 10.0)
 
-            # 이미지/비디오 클립
-            keyframe = visual_dir / f"scene_{sid}_keyframe.png"
-            if not keyframe.exists():
-                for ext in [".jpg", ".jpeg", ".webp"]:
-                    alt = visual_dir / f"scene_{sid}_keyframe{ext}"
-                    if alt.exists():
-                        keyframe = alt
+            # ─── 이미지 클립 ───
+            keyframe = None
+            if visual_dir:
+                for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+                    candidate = visual_dir / f"scene_{sid}_keyframe{ext}"
+                    if candidate.exists():
+                        keyframe = candidate
                         break
 
-            # 오디오 클립으로 실제 길이 확인
-            narration = voice_dir / f"scene_{sid}_narration.mp3"
+            # ─── 나레이션 → 실제 길이 측정 ───
+            narration = None
+            if voice_dir:
+                for ext in [".mp3", ".wav", ".ogg"]:
+                    candidate = voice_dir / f"scene_{sid}_narration{ext}"
+                    if candidate.exists():
+                        narration = candidate
+                        break
+
             actual_dur = dur_est
-            if narration.exists():
+            if narration and narration.exists():
                 import subprocess
                 try:
                     r = subprocess.run(
@@ -238,26 +273,30 @@ class ProjectModel:
                         capture_output=True, text=True, timeout=10
                     )
                     actual_dur = float(r.stdout.strip())
-                except:
+                except Exception:
                     pass
 
-            if keyframe.exists():
+            # 비디오 클립
+            if keyframe and keyframe.exists():
                 video_track.add_clip(Clip(
                     name=f"Scene {sid}",
                     file_path=str(keyframe),
                     start_frame=current_time,
                     duration=actual_dur,
                     clip_type="image",
-                    metadata={"scene_number": scene_num, "visual_prompt": scene.get("visual_prompt_en", "")},
+                    metadata={"scene_number": scene_num,
+                              "visual_prompt": scene.get("visual_prompt_en", "")},
                 ))
 
-            if narration.exists():
+            # 나레이션 클립
+            if narration and narration.exists():
                 audio_track.add_clip(Clip(
                     name=f"Narration {sid}",
                     file_path=str(narration),
                     start_frame=current_time,
                     duration=actual_dur,
                     clip_type="audio",
+                    volume=1.0,
                 ))
 
             # 자막 클립
@@ -274,10 +313,9 @@ class ProjectModel:
 
             current_time += actual_dur
 
-        # BGM (있으면)
-        bgm_dir = project_dir / "05_music"
-        if bgm_dir.exists():
-            for bgm_file in bgm_dir.glob("*.mp3"):
+        # ─── BGM ───
+        if music_dir and music_dir.exists():
+            for bgm_file in music_dir.glob("*.mp3"):
                 bgm_track.add_clip(Clip(
                     name=bgm_file.stem,
                     file_path=str(bgm_file),
@@ -295,3 +333,4 @@ class ProjectModel:
             proj.add_track(bgm_track)
 
         return proj
+

@@ -1,16 +1,21 @@
-"""미디어 브라우저 - 프로젝트 파일 및 에셋 탐색"""
+"""미디어 브라우저 v0.2 — 파일 필터링, 드래그 지원"""
 from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QTabWidget, QFileDialog, QSizePolicy
+    QTreeWidget, QTreeWidgetItem, QTabWidget, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QFont, QColor
+
+
+# 표시할 확장자
+MEDIA_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".mp3", ".wav", ".ogg", ".mp4", ".avi", ".mkv"}
+SKIP_NAMES = {"concat_list.txt", ".gitkeep"}
 
 
 class MediaBrowser(QWidget):
-    file_selected = Signal(str)       # 파일 경로
-    file_double_clicked = Signal(str)  # 파일 더블클릭 → 타임라인에 추가
+    file_selected = Signal(str)
+    file_double_clicked = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -19,103 +24,112 @@ class MediaBrowser(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # 탭: 프로젝트 파일 / 에셋 / BGM
         self._tabs = QTabWidget()
 
-        # 프로젝트 파일 탭
-        self._project_tree = QTreeWidget()
-        self._project_tree.setHeaderLabels(["Name", "Type", "Duration"])
-        self._project_tree.setAlternatingRowColors(True)
-        self._project_tree.itemClicked.connect(self._on_item_clicked)
-        self._project_tree.itemDoubleClicked.connect(self._on_item_dbl_clicked)
-        self._tabs.addTab(self._project_tree, "Project")
+        # Project
+        self._proj_tree = QTreeWidget()
+        self._proj_tree.setHeaderLabels(["Name", "Type"])
+        self._proj_tree.setAlternatingRowColors(True)
+        self._proj_tree.setColumnWidth(0, 160)
+        self._proj_tree.itemClicked.connect(lambda i, c: self._emit(i, "clicked"))
+        self._proj_tree.itemDoubleClicked.connect(lambda i, c: self._emit(i, "dbl"))
+        self._tabs.addTab(self._proj_tree, "Project")
 
-        # 에셋 탭
+        # Assets
         self._asset_tree = QTreeWidget()
         self._asset_tree.setHeaderLabels(["Name", "Type"])
         self._asset_tree.setAlternatingRowColors(True)
-        self._asset_tree.itemDoubleClicked.connect(self._on_item_dbl_clicked)
+        self._asset_tree.itemDoubleClicked.connect(lambda i, c: self._emit(i, "dbl"))
         self._tabs.addTab(self._asset_tree, "Assets")
 
-        # BGM 탭
+        # BGM
         self._bgm_tree = QTreeWidget()
         self._bgm_tree.setHeaderLabels(["Name", "Genre"])
         self._bgm_tree.setAlternatingRowColors(True)
-        self._bgm_tree.itemDoubleClicked.connect(self._on_item_dbl_clicked)
+        self._bgm_tree.itemDoubleClicked.connect(lambda i, c: self._emit(i, "dbl"))
         self._tabs.addTab(self._bgm_tree, "BGM")
 
         layout.addWidget(self._tabs)
 
-        # 하단 버튼
-        btn_layout = QHBoxLayout()
-        self._btn_import = QPushButton("+ Import")
-        self._btn_import.clicked.connect(self._import_files)
-        self._btn_refresh = QPushButton("Refresh")
-        self._btn_refresh.clicked.connect(self._refresh)
-        btn_layout.addWidget(self._btn_import)
-        btn_layout.addWidget(self._btn_refresh)
-        layout.addLayout(btn_layout)
+        # 하단
+        btns = QHBoxLayout()
+        btns.setContentsMargins(4, 4, 4, 4)
+        imp = QPushButton("+ Import")
+        imp.setObjectName("flatBtn")
+        imp.clicked.connect(self._import)
+        ref = QPushButton("Refresh")
+        ref.setObjectName("flatBtn")
+        ref.clicked.connect(self._refresh)
+        btns.addWidget(imp)
+        btns.addWidget(ref)
+        layout.addLayout(btns)
 
-    def set_project_dir(self, project_dir: Path):
-        self._project_dir = project_dir
+    def set_project_dir(self, d: Path):
+        self._project_dir = d
         self._refresh()
 
     def _refresh(self):
         if not self._project_dir:
             return
-        self._project_tree.clear()
         pd = Path(self._project_dir)
+        self._proj_tree.clear()
 
-        # 스크립트
-        self._add_folder(self._project_tree, pd / "01_script", "Scripts")
-        self._add_folder(self._project_tree, pd / "02_visual", "Images")
-        self._add_folder(self._project_tree, pd / "03_voice", "Narration")
-        self._add_folder(self._project_tree, pd / "06_assembly", "Assembly")
+        # 주요 미디어 폴더만 표시
+        folders = {
+            "Images": pd / "02_visual",
+            "Narration": pd / "03_voice",
+            "Final": pd / "06_assembly",
+        }
+        for label, folder in folders.items():
+            if not folder.exists():
+                continue
+            parent = QTreeWidgetItem([label, ""])
+            parent.setForeground(0, QColor("#8b949e"))
+            count = 0
+            for f in sorted(folder.iterdir()):
+                if not f.is_file() or f.name in SKIP_NAMES:
+                    continue
+                ext = f.suffix.lower()
+                if ext not in MEDIA_EXTS and ext != ".json":
+                    continue
+                ftype = "image" if ext in (".png",".jpg",".jpeg",".webp") else \
+                        "audio" if ext in (".mp3",".wav",".ogg") else \
+                        "video" if ext in (".mp4",".avi",".mkv") else "data"
+                item = QTreeWidgetItem([f.name, ftype])
+                item.setData(0, Qt.UserRole, str(f))
+                # 타입별 색상
+                colors = {"image":"#4361ee","audio":"#2ecc71","video":"#9b59b6","data":"#8b949e"}
+                item.setForeground(1, QColor(colors.get(ftype, "#888")))
+                parent.addChild(item)
+                count += 1
+            parent.setText(0, f"{label} ({count})")
+            self._proj_tree.addTopLevelItem(parent)
 
-        self._project_tree.expandAll()
+        self._proj_tree.expandAll()
 
         # BGM
         self._bgm_tree.clear()
-        bgm_dir = pd.parent.parent / "assets" / "bgm"
-        if bgm_dir.exists():
+        bgm_dir = pd.parent.parent / "assets" / "bgm" if pd.parent.parent.exists() else None
+        if bgm_dir and bgm_dir.exists():
             for f in sorted(bgm_dir.glob("*.mp3")):
-                item = QTreeWidgetItem([f.stem, f.stem.split("_")[0] if "_" in f.stem else "misc"])
+                genre = f.stem.rsplit("_", 1)[0] if "_" in f.stem else "misc"
+                item = QTreeWidgetItem([f.stem, genre])
                 item.setData(0, Qt.UserRole, str(f))
                 self._bgm_tree.addTopLevelItem(item)
 
-    def _add_folder(self, tree, folder: Path, label: str):
-        if not folder.exists():
-            return
-        parent = QTreeWidgetItem([label, "folder", ""])
-        for f in sorted(folder.iterdir()):
-            if f.is_file() and not f.name.startswith("."):
-                ext = f.suffix.lower()
-                ftype = "image" if ext in (".png", ".jpg", ".jpeg", ".webp") else \
-                        "audio" if ext in (".mp3", ".wav", ".ogg") else \
-                        "video" if ext in (".mp4", ".avi", ".mkv") else \
-                        "data" if ext == ".json" else "other"
-                item = QTreeWidgetItem([f.name, ftype, ""])
-                item.setData(0, Qt.UserRole, str(f))
-                parent.addChild(item)
-        tree.addTopLevelItem(parent)
-
-    def _import_files(self):
+    def _import(self):
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Import Files", "",
-            "Media Files (*.png *.jpg *.jpeg *.mp3 *.wav *.mp4 *.avi);;All Files (*)"
-        )
+            self, "Import", "", "Media (*.png *.jpg *.mp3 *.wav *.mp4);;All (*)")
         for f in files:
             self.file_double_clicked.emit(f)
 
-    def _on_item_clicked(self, item, col):
+    def _emit(self, item, kind):
         path = item.data(0, Qt.UserRole)
         if path:
-            self.file_selected.emit(path)
-
-    def _on_item_dbl_clicked(self, item, col):
-        path = item.data(0, Qt.UserRole)
-        if path:
-            self.file_double_clicked.emit(path)
+            if kind == "dbl":
+                self.file_double_clicked.emit(path)
+            else:
+                self.file_selected.emit(path)

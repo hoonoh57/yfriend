@@ -1,15 +1,19 @@
-"""yFriend Video Editor - 메인 윈도우"""
+"""yFriend Video Editor v0.2 — 메인 윈도우"""
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QMainWindow, QApplication, QDockWidget, QFileDialog,
-    QMenuBar, QMenu, QToolBar, QStatusBar, QMessageBox,
-    QSplitter, QWidget, QVBoxLayout, QLabel
+    QMainWindow, QApplication, QSplitter, QWidget, QVBoxLayout,
+    QFileDialog, QMessageBox, QToolBar, QStatusBar, QLabel
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QAction, QFont, QIcon
+from PySide6.QtGui import QAction, QFont, QKeySequence
 
-from ui.theme import DARK_THEME, MAIN_DARK_QSS
+from ui.theme import MAIN_QSS
+from ui.icons import (
+    icon_select, icon_cut, icon_trim, icon_ripple, icon_delete, icon_copy,
+    icon_magnet, icon_group, icon_keyframe, icon_zoom_in, icon_zoom_out,
+    icon_undo, icon_redo, icon_play, icon_export, icon_ai
+)
 from ui.timeline_widget import TimelineWidget
 from ui.preview_widget import PreviewWidget
 from ui.media_browser import MediaBrowser
@@ -24,247 +28,247 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._project: ProjectModel | None = None
         self.setWindowTitle("yFriend Video Editor")
-        self.setMinimumSize(1280, 800)
+        self.setMinimumSize(1200, 700)
         self.resize(1600, 960)
-        self.setStyleSheet(MAIN_DARK_QSS)
-
+        self.setStyleSheet(MAIN_QSS)
         self._init_menus()
-        self._init_toolbars()
         self._init_panels()
         self._init_connections()
         self._init_statusbar()
+        self._init_shortcuts()
 
-    # ─── 메뉴 ───
     def _init_menus(self):
-        menu_bar = self.menuBar()
+        mb = self.menuBar()
 
-        # File
-        file_menu = menu_bar.addMenu("File")
-        file_menu.addAction(self._make_action("New Project", self._new_project, "Ctrl+N"))
-        file_menu.addAction(self._make_action("Open Project...", self._open_project, "Ctrl+O"))
-        file_menu.addAction(self._make_action("Open yFriend Output...", self._open_yfriend_output))
-        file_menu.addSeparator()
-        file_menu.addAction(self._make_action("Save Project", self._save_project, "Ctrl+S"))
-        file_menu.addAction(self._make_action("Save As...", self._save_project_as, "Ctrl+Shift+S"))
-        file_menu.addSeparator()
-        file_menu.addAction(self._make_action("Export Video...", self._export_video, "Ctrl+E"))
-        file_menu.addSeparator()
-        file_menu.addAction(self._make_action("Exit", self.close, "Ctrl+Q"))
+        file_m = mb.addMenu("&File")
+        file_m.addAction(self._act("&New Project", self._new_project, "Ctrl+N"))
+        file_m.addAction(self._act("&Open Project...", self._open_project, "Ctrl+O"))
+        file_m.addAction(self._act("Open yFriend &Output...", self._open_yfriend))
+        file_m.addSeparator()
+        file_m.addAction(self._act("&Save", self._save, "Ctrl+S"))
+        file_m.addAction(self._act("Save &As...", self._save_as, "Ctrl+Shift+S"))
+        file_m.addSeparator()
+        file_m.addAction(self._act("&Export...", self._export, "Ctrl+E"))
+        file_m.addSeparator()
+        file_m.addAction(self._act("E&xit", self.close, "Ctrl+Q"))
 
-        # Edit
-        edit_menu = menu_bar.addMenu("Edit")
-        edit_menu.addAction(self._make_action("Undo", lambda: None, "Ctrl+Z"))
-        edit_menu.addAction(self._make_action("Redo", lambda: None, "Ctrl+Y"))
-        edit_menu.addSeparator()
-        edit_menu.addAction(self._make_action("Split Clip", self._timeline.split_clip if hasattr(self, '_timeline') else lambda: None, "Ctrl+B"))
-        edit_menu.addAction(self._make_action("Delete Clip", self._timeline.delete_clip if hasattr(self, '_timeline') else lambda: None, "Delete"))
+        edit_m = mb.addMenu("&Edit")
+        edit_m.addAction(self._act("&Undo", lambda: None, "Ctrl+Z"))
+        edit_m.addAction(self._act("&Redo", lambda: None, "Ctrl+Y"))
+        edit_m.addSeparator()
+        edit_m.addAction(self._act("&Split Clip", lambda: self._timeline.split_clip(), "Ctrl+B"))
+        edit_m.addAction(self._act("&Delete Clip", lambda: self._timeline.delete_clip(), "Delete"))
+        edit_m.addAction(self._act("D&uplicate", lambda: self._timeline._duplicate_selected(), "Ctrl+D"))
+        edit_m.addAction(self._act("&Group", lambda: self._timeline._group_selected(), "Ctrl+G"))
 
-        # View
-        view_menu = menu_bar.addMenu("View")
-        view_menu.addAction(self._make_action("Toggle Media Browser", self._toggle_media))
-        view_menu.addAction(self._make_action("Toggle Properties", self._toggle_properties))
+        view_m = mb.addMenu("&View")
+        self._act_guides = self._act("Show &Guides", self._toggle_guides)
+        self._act_guides.setCheckable(True)
+        self._act_safe = self._act("Show &Safe Area", self._toggle_safe)
+        self._act_safe.setCheckable(True)
+        view_m.addAction(self._act_guides)
+        view_m.addAction(self._act_safe)
+        view_m.addSeparator()
+        view_m.addAction(self._act("Toggle &Media Browser", self._toggle_media))
+        view_m.addAction(self._act("Toggle &Properties", self._toggle_props))
 
-        # AI
-        ai_menu = menu_bar.addMenu("AI")
-        ai_menu.addAction(self._make_action("Generate Full Video...", self._ai_generate_full))
-        ai_menu.addAction(self._make_action("Regenerate Images", self._ai_regen_images))
-        ai_menu.addAction(self._make_action("Regenerate Narration", self._ai_regen_narration))
-        ai_menu.addAction(self._make_action("Add BGM", self._ai_add_bgm))
+        ai_m = mb.addMenu("&AI")
+        ai_m.addAction(self._act("Generate Full &Video...", self._ai_full))
+        ai_m.addAction(self._act("Regenerate &Images", self._ai_images))
+        ai_m.addAction(self._act("Regenerate &Narration", self._ai_narr))
+        ai_m.addAction(self._act("Add &BGM", self._ai_bgm))
 
-        # Help
-        help_menu = menu_bar.addMenu("Help")
-        help_menu.addAction(self._make_action("About", self._show_about))
+        help_m = mb.addMenu("&Help")
+        help_m.addAction(self._act("&About", self._about))
+        help_m.addAction(self._act("&Keyboard Shortcuts", self._show_shortcuts))
 
-    # ─── 툴바 ───
-    def _init_toolbars(self):
-        pass  # 향후 아이콘 기반 툴바 추가
-
-    # ─── 패널 구성 ───
     def _init_panels(self):
-        # 중앙: 프리뷰 + 속성 (가로 분할)
-        central_splitter = QSplitter(Qt.Vertical)
+        root = QSplitter(Qt.Vertical)
 
-        # 상단: 미디어 브라우저 | 프리뷰 | 속성
-        top_splitter = QSplitter(Qt.Horizontal)
+        # 상단: 미디어 | 프리뷰 | 속성
+        top = QSplitter(Qt.Horizontal)
 
-        self._media_browser = MediaBrowser()
-        self._media_browser.setMinimumWidth(200)
-        top_splitter.addWidget(self._media_browser)
+        self._media = MediaBrowser()
+        self._media.setMinimumWidth(180)
+        self._media.setMaximumWidth(300)
+        top.addWidget(self._media)
 
         self._preview = PreviewWidget()
-        self._preview.setMinimumSize(480, 300)
-        top_splitter.addWidget(self._preview)
+        self._preview.setMinimumSize(400, 250)
+        top.addWidget(self._preview)
 
-        self._properties = PropertiesPanel()
-        self._properties.setMinimumWidth(250)
-        self._properties.setMaximumWidth(350)
-        top_splitter.addWidget(self._properties)
+        self._props = PropertiesPanel()
+        self._props.setMinimumWidth(240)
+        self._props.setMaximumWidth(320)
+        top.addWidget(self._props)
 
-        top_splitter.setStretchFactor(0, 1)
-        top_splitter.setStretchFactor(1, 3)
-        top_splitter.setStretchFactor(2, 1)
+        top.setStretchFactor(0, 1)
+        top.setStretchFactor(1, 4)
+        top.setStretchFactor(2, 1)
+        root.addWidget(top)
 
-        central_splitter.addWidget(top_splitter)
-
-        # AI 어시스턴트 바
+        # AI 바
         self._ai_bar = AIAssistantBar()
-        central_splitter.addWidget(self._ai_bar)
+        root.addWidget(self._ai_bar)
 
         # 타임라인
         self._timeline = TimelineWidget()
-        self._timeline.setMinimumHeight(200)
-        central_splitter.addWidget(self._timeline)
+        self._timeline.setMinimumHeight(180)
+        root.addWidget(self._timeline)
 
-        central_splitter.setStretchFactor(0, 3)
-        central_splitter.setStretchFactor(1, 0)
-        central_splitter.setStretchFactor(2, 2)
+        root.setStretchFactor(0, 3)
+        root.setStretchFactor(1, 0)
+        root.setStretchFactor(2, 2)
+        self.setCentralWidget(root)
 
-        self.setCentralWidget(central_splitter)
-
-    # ─── 시그널 연결 ───
     def _init_connections(self):
-        self._timeline.clip_selected.connect(self._on_clip_selected)
+        self._timeline.clip_selected.connect(self._on_clip_sel)
         self._timeline.time_changed.connect(self._preview.set_time)
         self._preview.time_changed.connect(self._timeline.set_playhead)
-        self._properties.clip_updated.connect(self._on_clip_updated)
-        self._ai_bar.command_submitted.connect(self._on_ai_command)
-        self._media_browser.file_double_clicked.connect(self._on_media_add)
+        self._props.clip_updated.connect(self._on_clip_upd)
+        self._ai_bar.command_submitted.connect(self._on_ai_cmd)
+        self._media.file_selected.connect(lambda p: self._status(f"Selected: {Path(p).name}"))
+        self._media.file_double_clicked.connect(self._on_media_add)
 
-    # ─── 상태 바 ───
     def _init_statusbar(self):
-        self._statusbar = QStatusBar()
-        self.setStatusBar(self._statusbar)
-        self._statusbar.showMessage("Ready — Open a project or create a new one")
+        self._sb = QStatusBar()
+        self.setStatusBar(self._sb)
+        self._sb.showMessage("Ready")
 
-    # ─── 유틸리티 ───
-    def _make_action(self, text, callback, shortcut=None):
-        action = QAction(text, self)
+    def _init_shortcuts(self):
+        """키보드 단축키 — 전문 에디터 표준"""
+        pass  # 메뉴에서 이미 등록됨
+
+    # ─── Utility ───
+    def _act(self, text, cb, shortcut=None):
+        a = QAction(text, self)
         if shortcut:
-            action.setShortcut(shortcut)
-        action.triggered.connect(callback)
-        return action
+            a.setShortcut(shortcut)
+        a.triggered.connect(cb)
+        return a
 
-    # ─── File Actions ───
+    def _status(self, msg):
+        self._sb.showMessage(msg, 5000)
+
+    # ─── File ───
     def _new_project(self):
         self._project = ProjectModel(name="New Project")
-        # 기본 트랙 생성
         self._project.add_track(Track(name="Video 1", track_type="video"))
         self._project.add_track(Track(name="Subtitles", track_type="text"))
         self._project.add_track(Track(name="Narration", track_type="audio"))
         self._project.add_track(Track(name="BGM", track_type="bgm"))
-        self._apply_project()
-        self._statusbar.showMessage("New project created")
+        self._apply()
+        self._status("New project created")
 
     def _open_project(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Project", "", "yFriend Project (*.yfp);;JSON (*.json)"
-        )
-        if path:
-            self._project = ProjectModel.load(Path(path))
-            self._apply_project()
-            self._statusbar.showMessage(f"Opened: {path}")
+        p, _ = QFileDialog.getOpenFileName(self, "Open", "", "yFriend Project (*.yfp);;JSON (*.json)")
+        if p:
+            self._project = ProjectModel.load(Path(p))
+            self._apply()
 
-    def _open_yfriend_output(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select yFriend Output Folder")
-        if folder:
+    def _open_yfriend(self):
+        f = QFileDialog.getExistingDirectory(self, "Select yFriend Output")
+        if f:
             try:
-                self._project = ProjectModel.from_yfriend_project(Path(folder))
-                self._apply_project()
-                self._media_browser.set_project_dir(Path(folder))
-                self._statusbar.showMessage(f"Loaded yFriend output: {folder}")
+                self._project = ProjectModel.from_yfriend_project(Path(f))
+                self._apply()
+                self._media.set_project_dir(Path(f))
+                self._status(f"Loaded: {Path(f).name}")
             except Exception as e:
-                QMessageBox.warning(self, "Error", f"Failed to load: {e}")
+                QMessageBox.warning(self, "Error", str(e))
 
-    def _save_project(self):
+    def _save(self):
+        if not self._project or not self._project.project_dir:
+            self._save_as()
+            return
+        p = Path(self._project.project_dir) / "project.yfp"
+        self._project.save(p)
+        self._status(f"Saved: {p}")
+
+    def _save_as(self):
         if not self._project:
             return
-        if not self._project.project_dir:
-            self._save_project_as()
-            return
-        path = Path(self._project.project_dir) / "project.yfp"
-        self._project.save(path)
-        self._statusbar.showMessage(f"Saved: {path}")
+        p, _ = QFileDialog.getSaveFileName(self, "Save As", "", "yFriend Project (*.yfp)")
+        if p:
+            self._project.save(Path(p))
+            self._status(f"Saved: {p}")
 
-    def _save_project_as(self):
-        if not self._project:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "yFriend Project (*.yfp)")
-        if path:
-            self._project.save(Path(path))
-            self._statusbar.showMessage(f"Saved: {path}")
-
-    def _export_video(self):
+    def _export(self):
         dlg = ExportDialog(self)
-        dlg.export_requested.connect(self._do_export)
+        dlg.export_requested.connect(lambda s: self._status(f"Exporting: {s}"))
         dlg.exec()
 
-    def _do_export(self, settings: dict):
-        self._statusbar.showMessage(f"Exporting: {settings}")
-        # TODO: FFmpeg 렌더링 로직 연결
+    # ─── View ───
+    def _toggle_guides(self):
+        self._preview._canvas.set_guides(self._act_guides.isChecked())
 
-    # ─── View Toggles ───
+    def _toggle_safe(self):
+        self._preview._canvas.set_safe_area(self._act_safe.isChecked())
+
     def _toggle_media(self):
-        self._media_browser.setVisible(not self._media_browser.isVisible())
+        self._media.setVisible(not self._media.isVisible())
 
-    def _toggle_properties(self):
-        self._properties.setVisible(not self._properties.isVisible())
+    def _toggle_props(self):
+        self._props.setVisible(not self._props.isVisible())
 
-    # ─── AI Actions ───
-    def _ai_generate_full(self):
-        self._statusbar.showMessage("AI: Generating full video...")
+    # ─── AI ───
+    def _ai_full(self): self._status("AI: Generating full video...")
+    def _ai_images(self): self._status("AI: Regenerating images...")
+    def _ai_narr(self): self._status("AI: Regenerating narration...")
+    def _ai_bgm(self): self._status("AI: Adding BGM...")
 
-    def _ai_regen_images(self):
-        self._statusbar.showMessage("AI: Regenerating images...")
+    def _on_ai_cmd(self, cmd):
+        self._status(f"AI: {cmd}")
 
-    def _ai_regen_narration(self):
-        self._statusbar.showMessage("AI: Regenerating narration...")
+    # ─── Clip ───
+    def _on_clip_sel(self, clip_id):
+        if self._project:
+            c = self._project.get_clip(clip_id)
+            if c:
+                self._props.set_clip(c)
 
-    def _ai_add_bgm(self):
-        self._statusbar.showMessage("AI: Adding background music...")
-
-    def _on_ai_command(self, command: str):
-        self._statusbar.showMessage(f"AI Command: {command}")
-        # TODO: core/ai_command_parser.py로 파싱 후 실행
-
-    # ─── Clip Selection ───
-    def _on_clip_selected(self, clip_id: str):
+    def _on_clip_upd(self, clip_id, changes):
         if not self._project:
             return
-        clip = self._project.get_clip(clip_id)
-        if clip:
-            self._properties.set_clip(clip)
-
-    def _on_clip_updated(self, clip_id: str, changes: dict):
-        if not self._project:
-            return
-        clip = self._project.get_clip(clip_id)
-        if clip:
+        c = self._project.get_clip(clip_id)
+        if c:
             for k, v in changes.items():
-                if hasattr(clip, k):
-                    setattr(clip, k, v)
+                if hasattr(c, k):
+                    setattr(c, k, v)
             self._timeline._rebuild()
-            self._statusbar.showMessage(f"Clip {clip_id} updated")
+            self._status(f"Updated: {c.name}")
 
-    def _on_media_add(self, path: str):
-        self._statusbar.showMessage(f"Add to timeline: {path}")
-        # TODO: 파일 타입 감지 → 적절한 트랙에 클립 추가
+    def _on_media_add(self, path):
+        self._status(f"Add: {Path(path).name}")
 
-    # ─── 프로젝트 적용 ───
-    def _apply_project(self):
+    # ─── Apply ───
+    def _apply(self):
         if not self._project:
             return
         self._timeline.set_project(self._project)
         self._preview.set_project(self._project)
         self.setWindowTitle(f"yFriend Video Editor — {self._project.name}")
 
-    # ─── About ───
-    def _show_about(self):
-        QMessageBox.about(
-            self,
-            "About yFriend Video Editor",
-            "yFriend Video Editor v0.1\n\n"
+    # ─── Help ───
+    def _about(self):
+        QMessageBox.about(self, "About",
+            "yFriend Video Editor v0.2\n\n"
             "AI-powered video creation & editing\n"
-            "Multi-track timeline editor with natural language control\n\n"
-            "License: MIT\n"
-            "UI: PySide6 (LGPL)\n"
-        )
+            "Multi-track NLE with natural language control\n\n"
+            "UI: PySide6 (LGPL) | License: MIT")
+
+    def _show_shortcuts(self):
+        QMessageBox.information(self, "Shortcuts",
+            "V — Select tool\n"
+            "B — Blade / Split tool\n"
+            "T — Trim tool\n"
+            "R — Ripple edit tool\n"
+            "S — Toggle snap\n"
+            "K — Add keyframe\n"
+            "Del — Delete clip\n"
+            "Ctrl+D — Duplicate\n"
+            "Ctrl+G — Group\n"
+            "Ctrl+B — Split at playhead\n"
+            "Ctrl+Z / Y — Undo / Redo\n"
+            "Ctrl+E — Export\n"
+            "Ctrl+Mouse Wheel — Timeline zoom")
