@@ -1,0 +1,47 @@
+# yFriend 설정 파일
+# 사용법: 이 파일을 config.yaml로 복사한 후 API 키를 입력하세요
+# cp config.yaml.example config.yaml
+
+projects_dir: "projects"
+output_resolution: "1920x1080"
+output_fps: 24
+
+api_keys:
+  gemini:
+    - "YOUR_GEMINI_API_KEY_1"
+    - "YOUR_GEMINI_API_KEY_2"
+    - "YOUR_GEMINI_API_KEY_3"
+    - "YOUR_GEMINI_API_KEY_4"
+    - "YOUR_GEMINI_API_KEY_5"
+
+engines:
+  script:
+    name: "gemini_flash"
+    module: "engines.script.gemini_flash"
+    params:
+      model: "gemini-2.5-flash"
+      max_scenes: 8
+      language: "ko"
+
+  visual:
+    name: "gemini_image"
+    module: "engines.visual.gemini_image"
+    params:
+      model: "gemini-2.5-flash-image"
+      aspect_ratio: "16:9"
+      style: "cinematic, photorealistic, 4K, vibrant colors, YouTube video scene"
+
+  voice:
+    name: "edge_tts"
+    module: "engines.voice.edge_tts_engine"
+    params:
+      voice: "ko-KR-SunHiNeural"
+      rate: "+0%"
+
+  assembly:
+    name: "ffmpeg_assembly"
+    module: "engines.assembly.ffmpeg_assembly"
+    params:
+      font_size: 28
+      font_color: "white"
+      bg_color: "black"

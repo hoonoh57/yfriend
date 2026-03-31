@@ -1,0 +1,22 @@
+# API keys - 절대 업로드 금지
+config.yaml
+
+# 프로젝트 출력물
+projects/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# ypatch 백업
+.ypatch_backup/
+
+# 임시 파일
+_debug_test.txt
+*.patch_test.py
+
+# IDE
+.vscode/
+.idea/
