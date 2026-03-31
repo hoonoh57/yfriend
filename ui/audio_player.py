@@ -101,6 +101,26 @@ class AudioMixer(QObject):
         if 0 <= index < len(self._tracks):
             self._tracks[index].set_volume(volume)
 
+    def sync_time(self, time_sec: float):
+        """매 틱마다 호출 — 아직 안 시작된 클립을 시작하고, 끝난 클립을 정지"""
+        self._current_time = time_sec
+        if not self._playing:
+            return
+        for t in self._tracks:
+            if not t.file_path or not Path(t.file_path).exists():
+                continue
+            clip_offset = time_sec - t.start_sec
+            state = t.player.playbackState()
+            if clip_offset < 0:
+                # 아직 시작 시간 안 됨
+                if state != QMediaPlayer.StoppedState:
+                    t.player.stop()
+            elif clip_offset >= 0:
+                # 재생해야 할 구간
+                if state == QMediaPlayer.StoppedState or state == QMediaPlayer.PausedState:
+                    t.player.setPosition(int(clip_offset * 1000))
+                    t.player.play()
+
     @property
     def is_playing(self):
         return self._playing

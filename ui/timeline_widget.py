@@ -431,6 +431,7 @@ class TimelineWidget(QWidget):
             self._scene.addLine(HEADER_W, y + TRACK_H, sw, y + TRACK_H, QPen(QColor("#1a2233"), 1))
             # 헤더
             hdr = TrackHeader(track, i, sw, owner=self)
+            hdr.setZValue(20)
             self._scene.addItem(hdr)
 
             # 클립
@@ -440,7 +441,14 @@ class TimelineWidget(QWidget):
                 self._clip_items.append(ci)
 
         self._draw_playhead()
+        # selectionChanged 중복 방지 (disconnect 후 재연결)
+        try:
+            self._scene.selectionChanged.disconnect(self._on_selection)
+        except RuntimeError:
+            pass
         self._scene.selectionChanged.connect(self._on_selection)
+        # 뷰가 헤더 영역을 보여주도록 왼쪽으로 스크롤
+        self._view.horizontalScrollBar().setValue(0)
 
     def _draw_playhead(self):
         if self._playhead_line:

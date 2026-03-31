@@ -181,7 +181,6 @@ class ProjectModel:
         return proj
 
     @classmethod
-    @classmethod
     def from_yfriend_project(cls, project_dir: Path) -> "ProjectModel":
         """기존 yFriend 파이프라인 결과물을 ProjectModel로 변환"""
         proj = cls()

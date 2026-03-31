@@ -54,15 +54,34 @@ class PreviewCanvas(QLabel):
                     fs = o.get("font_size", 14)
                     p.setFont(QFont("Malgun Gothic", fs, QFont.Bold))
                     fm = p.fontMetrics()
-                    txt = o.get("text","")
-                    ow = fm.horizontalAdvance(txt)+20
-                    oh = fm.height()+10
-                    ox = tx + int(tw * o.get("x",0.5)) - ow//2
-                    oy = ty + int(th * o.get("y",0.88)) - oh//2
-                    p.setPen(Qt.NoPen); p.setBrush(QColor("#000000bb"))
-                    p.drawRoundedRect(ox, oy, ow, oh, 6, 6)
-                    p.setPen(QColor(o.get("color","#fff")))
-                    p.drawText(ox, oy, ow, oh, Qt.AlignCenter, txt)
+                    raw = o.get("text", "")
+                    # ── 멀티라인 처리: \n 분리 + 긴 줄 자동 줄바꿈 ──
+                    max_cpl = max(10, int(tw * 0.85) // max(fm.averageCharWidth(), 1))
+                    raw_lines = raw.replace("\\n", "\n").split("\n")
+                    lines = []
+                    for rl in raw_lines:
+                        rl = rl.strip()
+                        while len(rl) > max_cpl:
+                            lines.append(rl[:max_cpl])
+                            rl = rl[max_cpl:]
+                        if rl:
+                            lines.append(rl)
+                    if not lines:
+                        continue
+                    line_h = fm.height() + 4
+                    max_w = max(fm.horizontalAdvance(ln) for ln in lines) + 24
+                    total_h = line_h * len(lines) + 12
+                    ox = tx + int(tw * o.get("x", 0.5)) - max_w // 2
+                    oy = ty + int(th * o.get("y", 0.85)) - total_h // 2
+                    # 배경
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(QColor("#000000cc"))
+                    p.drawRoundedRect(ox, oy, max_w, total_h, 8, 8)
+                    # 텍스트
+                    p.setPen(QColor(o.get("color", "#fff")))
+                    for li, ln in enumerate(lines):
+                        ly = oy + 6 + li * line_h
+                        p.drawText(ox, ly, max_w, line_h, Qt.AlignCenter, ln)
             else:
                 p.setPen(QColor("#484f58")); p.setFont(QFont("Segoe UI",14))
                 p.drawText(self.rect(), Qt.AlignCenter, "No Preview")
@@ -184,6 +203,8 @@ class PreviewWidget(QWidget):
         self._t += 0.04
         if self._t >= self._dur:
             self._stop(); return
+        # ── 오디오 믹서에 현재 시간 동기화 (다음 클립 자동 재생) ──
+        self._mixer.sync_time(self._t)
         self.time_changed.emit(self._t)
         self._refresh()
 
@@ -233,7 +254,7 @@ class PreviewWidget(QWidget):
             for c in track.clips:
                 if c.start_frame <= t < c.start_frame + c.duration:
                     txts.append({
-                        "text": c.text_content[:80], "x":0.5, "y":0.88,
+                        "text": c.text_content[:200], "x":0.5, "y":0.85,
                         "font_size": c.text_style.get("size",42)//3,
                         "color": c.text_style.get("color","#fff"),
                     })

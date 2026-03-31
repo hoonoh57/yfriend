@@ -151,6 +151,8 @@ class PropertiesPanel(QWidget):
         """)
 
         scroll.setWidget(container)
+        scroll.setStyleSheet("QScrollArea { background: #0d1117; border: none; }")
+        container.setStyleSheet("background: #0d1117;")
         main = QVBoxLayout(self)
         main.setContentsMargins(0, 0, 0, 0)
         main.addWidget(scroll)
