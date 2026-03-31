@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsLineItem, QGraphicsTextItem, QGraphicsItem,
     QLabel, QSlider, QToolButton, QToolBar, QMenu, QSizePolicy, QGraphicsPolygonItem
 )
-from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QLineF
+from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QLineF, QTimer
 from PySide6.QtGui import (
     QBrush, QPen, QColor, QFont, QPainter, QPainterPath, QPolygonF,
     QCursor, QWheelEvent, QAction
@@ -202,14 +202,15 @@ class TrackHeader(QGraphicsRectItem):
         self.setPen(QPen(QColor("#30363d"), 1))
         self.setZValue(20)
 
-        # ★ 자식 아이템은 부모 rect 내 로컬 좌표 (0,0) = 부모 좌상단
-        # 타입 색상 바 (왼쪽 3px)
-        bar = QGraphicsRectItem(0, y, 3, TRACK_H, self)
+        # 타입 색상 바 (왼쪽 3px) — setParentItem 명시 호출
+        bar = QGraphicsRectItem(0, y, 3, TRACK_H)
+        bar.setParentItem(self)
         bar.setBrush(QBrush(QColor(CLIP_COLORS.get(track.track_type, "#666"))))
         bar.setPen(Qt.NoPen)
 
-        # 트랙 이름
-        name = QGraphicsTextItem(self)
+        # 트랙 이름 — PySide6에서 QGraphicsTextItem(parent)이 작동 안 함
+        name = QGraphicsTextItem("")
+        name.setParentItem(self)
         name.setPlainText(track.name)
         name.setDefaultTextColor(QColor("#e6edf3"))
         name.setFont(QFont("Segoe UI", 8, QFont.Bold))
@@ -225,7 +226,8 @@ class TrackHeader(QGraphicsRectItem):
             ("L", "#7ec8e3", "locked"),
             ("V", "#2ecc71", "visible"),
         ]:
-            txt = QGraphicsTextItem(self)
+            txt = QGraphicsTextItem("")
+            txt.setParentItem(self)
             txt.setPlainText(label)
             active = getattr(track, attr, True) if attr != "_solo" else False
             if attr == "visible":
@@ -452,7 +454,7 @@ class TimelineWidget(QWidget):
             pass
         self._scene.selectionChanged.connect(self._on_selection)
         # 뷰가 헤더 영역을 보여주도록 왼쪽으로 스크롤
-        self._view.horizontalScrollBar().setValue(0)
+        from PySide6.QtCore import QTimer as _QT; _QT.singleShot(50, lambda: self._view.horizontalScrollBar().setValue(0))
 
     def _draw_playhead(self):
         if self._playhead_line:
