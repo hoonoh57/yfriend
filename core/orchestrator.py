@@ -51,8 +51,11 @@ class Orchestrator:
                 extra = {}
                 if config_key in ("script", "visual"):
                     extra["api_key"] = api_key_val
-
+                if config_key == "visual":
+                    sf_key = self.config.api_keys.get("siliconflow", "")
+                    extra["siliconflow_key"] = sf_key
                 engine = self._load_engine(engine_config, **extra)
+
 
                 if config_key == "script":
                     blueprint = await engine.generate_blueprint(topic, phase_dir)

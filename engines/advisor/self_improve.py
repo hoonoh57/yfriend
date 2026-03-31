@@ -136,7 +136,7 @@ def analyze_project(project_dir: Path) -> dict:
     scores = {}
     scores["script"] = 80 if report["phases"].get("script") == "OK" else 0
     scores["voice"] = 80 if report["phases"].get("voice") == "OK" else 0
-    scores["visual"] = 0  # not yet implemented
+    scores["visual"] = 70 if report["phases"].get("visual") == "OK" else 0
     scores["motion"] = 0  # not yet implemented
     scores["music"] = 0   # not yet implemented
     scores["assembly"] = 70 if report["phases"].get("assembly") == "OK" else 0
